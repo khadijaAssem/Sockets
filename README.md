@@ -1,2 +1,2 @@
 # Socket-Programming
-Computer communicationAssignment 1
+Computer Networks Assignment 1
