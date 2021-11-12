@@ -1,0 +1,2 @@
+client_get favicon.ico localhost 2000
+client_post post.html localhost 2000
