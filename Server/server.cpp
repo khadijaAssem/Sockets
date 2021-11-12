@@ -1,124 +1,12 @@
 /*
 ** server.c -- a stream socket server demo
 */
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <sys/wait.h>
-#include <signal.h>
-
-#include <pthread.h>
-#include <algorithm>
-#include <string>
-#include <iostream>
-#include <fstream>
-#include <chrono>
-#include <ctime>    
-
-// #define PORT "3490"  // the port users will be connecting to
-
-#define BACKLOG 10	 // how many pending connections queue will hold
-#define MAXDATASIZE 1000000 // max number of bytes we can get at once 
-#define MAXFILEPATHSIZE 50 // max number of bytes we can get at once 
-#define MAXPORTNUMBSIZE 20 // max number of bytes we can get at once 
-#define MAXHOSTNAMESIZE 50 // max number of bytes we can get at once 
-
-#define GET_REQUEST "GET"
-#define POST_REQUEST "POST"
-
-#define OK_RESPONSE "HTTP/1.1 200 OK\r\n"
-#define NOTFOUND_RESPONSE "HTTP/1.1 404 Not Found\r\n"
-#define CONTENT_LENGTH "Content-Length: "
-#define ENDREQUEST "\r\n"
-
-#define TIMEOUT 5000000
-
-
-struct messege_content {
-
-    char request[8]; // GET or Post
-    char file_path[MAXFILEPATHSIZE];
-    char host_name[MAXHOSTNAMESIZE];
-    char port_number[MAXPORTNUMBSIZE];
-    char request_msg[MAXDATASIZE]; // Whole request messege
-
-};
+#include "server.h"
 /*  GET /file-path HTTP/1.1
 	Host: host-name:(port-number)  */
 
-void save_data_to_path(char *request_msg, char *file_path) 
-{
-	std::string s = std::string(request_msg);
-	std::string path = "public" + std::string(file_path);
-	std::ofstream MyFile(path);
-	s = s.substr(s.find(CONTENT_LENGTH) + std::string(CONTENT_LENGTH).length());
-    int cLen = stoi(s.substr(0,s.find("\n")));
-    s = s.substr(s.find("\n")+3, cLen-1);
-	printf("Writitng to path %s\n",path.c_str());
-	MyFile << s; // Write to the file
-	MyFile.close(); // Close the file
-}
 
-std::string read_data_from_path(char *file_path) 
-{
-	std::string path = "public" + std::string(file_path);
-	printf("Reading from path %s\n",path.c_str());
-	std::string totText;
-	std::ifstream MyReadFile(path);
-	if (MyReadFile.good()) {
-		std::string myText; 
-		totText = "";
-		while (getline (MyReadFile, myText)){
-			totText += myText + "\n"; // Write to the file
-		}
-		if (totText.length() >= 1)
-			totText.substr(0, totText.length()-1);
-		
-		MyReadFile.close(); // Close the file
-
-	}
-	else {
-		totText = "";
-	}
-	return totText;
-}
-
-struct messege_content request_processing(char command[]) 
-{
-/*  GET /file-path HTTP/1.1
-	Host: host-name:(port-number)  */
-	/* 0 GET
-	1 /file-path
-	2 HTTP/1.1
-	3 Host
-	4 host-name
-	5 (port-number) */
-
-	struct messege_content cmd;
-	strcpy(cmd.request_msg, command);
-	
-	int lArgs = 0;
-    char *args[100];
-    char *token = strtok(command, " ");
-    while (token != NULL) { 
-        args[lArgs++] = token;
-        token = strtok(NULL, " |\n|:"); 
-    } 
-    args[lArgs] = NULL;
-	strcpy(cmd.request, args[0]);
-	strcpy(cmd.file_path, args[1]);
-	strcpy(cmd.host_name, args[4]);
-	strcpy(cmd.port_number, args[5]);
-	return cmd;
-}
+utilities utils;
 
 void *thread_handler(void *arg)
 {
@@ -140,12 +28,12 @@ void *thread_handler(void *arg)
 			start = std::chrono::system_clock::now(); // Restart timer
 
             buf[numbytes] = '\0';
-			struct messege_content cmd = request_processing(buf);
+			struct messege_content cmd = utils.request_processing(buf);
 
             printf("Server: received from client on socket %d: '%s request'\n%s\n", *new_fd, cmd.request, cmd.request_msg);
 
 			if (!strcmp(cmd.request, GET_REQUEST)) {
-				std::string fileTXT = read_data_from_path(cmd.file_path);
+				std::string fileTXT = utils.read_data_from_path(cmd.file_path);
 				std::string response = "";
 				if (fileTXT.length() > 0) {
 					// SEND OK RESPONSE AND CONCAT
@@ -166,7 +54,7 @@ void *thread_handler(void *arg)
 			}
 			
 			else if (!strcmp(cmd.request, POST_REQUEST)) {
-				save_data_to_path(cmd.request_msg, cmd.file_path);
+				utils.save_data_to_path(cmd.request_msg, cmd.file_path);
 
 				if (send(*new_fd, OK_RESPONSE, std::string(OK_RESPONSE).length(), 0) == -1) {
 					printf("Server: send error\n");
@@ -182,7 +70,7 @@ void *thread_handler(void *arg)
 }
 
 // get sockaddr, IPv4 or IPv6:
-void *get_in_addr(struct sockaddr *sa)
+void *server::get_in_addr(struct sockaddr *sa)
 {
 	if (sa->sa_family == AF_INET) {
 		return &(((struct sockaddr_in*)sa)->sin_addr);
@@ -191,7 +79,7 @@ void *get_in_addr(struct sockaddr *sa)
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int main(int argc, char **argv)
+int server::run(char PORT[])
 {   
 	// RUN AS : my_server portNumber
 
@@ -205,19 +93,6 @@ int main(int argc, char **argv)
     int numbytes;  
 	char buf[MAXDATASIZE];
 	int rv;
-
-    // All ports below 1024 are RESERVED (unless you’re the superuser)! You can have any port number above that, right up to 65535
-    char PORT[] = "3490";
-
-	if (argc < 2) {
-		printf("WILL USE PORTNUMBER: %s\n", PORT);
-		printf("IF YOU WANT TO CHANGE THE DEFAULT RUN THE FOLLOWING\n");
-        printf("./my_server portNumber\n");
-        printf("THANKS :)\n--------------------------------------------------------------------------------\n");
-	}
-    if (argc >= 2){
-        strcpy(PORT, argv[1]); // get port number from user
-    }
 
 	memset(&hints, 0, sizeof hints); // make sure the struct is empty
 	hints.ai_family = AF_UNSPEC; // use IPv4 or IPv6, whichever (AF_INET or AF_INET6)
