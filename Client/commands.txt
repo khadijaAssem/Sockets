@@ -1,0 +1,5 @@
+client_get index.html host-name (port-number)
+client_get file.txt host-name (port-number)
+client_get not_found.txt host-name (port-number)
+client_get favicon.ico host-name (port-number)
+client_post post.html host-name (port-number)
